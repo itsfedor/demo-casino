@@ -159,8 +159,8 @@ const plinkoGame = {
         const nx = dx / d, ny = dy / d;
         b.x = p.x + nx * pr;
         b.y = p.y + ny * pr;
-        b.vx = nx * 3.6 + (Math.random() - 0.5) * 2.4;
-        b.vy = -Math.abs(ny) * 3.0 + (Math.random() - 0.5) * 0.5;
+        b.vx = nx * 6.5 + (Math.random() - 0.5) * 3.0;
+        b.vy = Math.max(1.2, Math.abs(b.vy) * 0.35) + (Math.random() - 0.5) * 0.8;
       }
     }
     // start settling at the bucket line

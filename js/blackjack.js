@@ -181,7 +181,9 @@ const blackjackGame = {
         saveState();
         updateBalance();
         this.last.innerHTML = `<span class="win">+${fmt(this.bet * 1.5)} DEMO</span>`;
+        this.holeVisible = true;
         this.setPhase('done');
+        this.render();
         this.busy = false;
       }
       return;
