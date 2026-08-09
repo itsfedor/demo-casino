@@ -140,7 +140,8 @@ const plinkoGame = {
   },
 
   physics(b) {
-    b.vy = Math.min(b.vy + 0.55, 12);
+    if (b.settling) return;
+    b.vy = Math.min(b.vy + 0.5, 10);
     b.vx *= 0.995;
     b.vy *= 0.996;
     b.x += b.vx;
@@ -159,8 +160,12 @@ const plinkoGame = {
         const nx = dx / d, ny = dy / d;
         b.x = p.x + nx * pr;
         b.y = p.y + ny * pr;
-        b.vx = nx * 6.5 + (Math.random() - 0.5) * 3.0;
-        b.vy = Math.max(3.2, Math.abs(b.vy) * 0.5) + (Math.random() - 0.5) * 1.0;
+        // remove the velocity component pushing into the peg (prevents rubbing)
+        const dot = b.vx * nx + b.vy * ny;
+        if (dot < 0) { b.vx -= nx * dot; b.vy -= ny * dot; }
+        // decisive lateral kick away from the peg + keep descending
+        b.vx = (nx >= 0 ? 1 : -1) * (4 + Math.random() * 4);
+        b.vy = Math.max(5.0, Math.abs(b.vy) * 0.85);
       }
     }
     // start settling at the bucket line
