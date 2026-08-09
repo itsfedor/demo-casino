@@ -25,7 +25,10 @@ function fmt(n) {
 function loadState() {
   try {
     const b = localStorage.getItem('cl_balance');
-    if (b !== null) App.balance = parseFloat(b) || 10000;
+    if (b !== null) {
+      const v = parseFloat(b);
+      App.balance = Number.isFinite(v) ? v : 10000; // keep a legit 0 balance; only default on corrupt data
+    }
     const w = localStorage.getItem('cl_wallet');
     if (w) App.wallet = JSON.parse(w);
     const seed = localStorage.getItem('cl_seeds');
@@ -45,8 +48,24 @@ function saveState() {
 
 /* ---------- provably-fair primitives ---------- */
 async function sha256(str) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+  // crypto.subtle exists only on secure contexts (https / localhost).
+  // Fallback below keeps the game working from file:// or plain http.
+  if (window.crypto && crypto.subtle) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+  }
+  // deterministic 64-hex fallback (FNV-1a + xorshift mix) — not real SHA-256,
+  // but stable per input, so rolls stay deterministic on the same seeds.
+  let h1 = 0x811c9dc5, h2 = 0x9e3779b9;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 16777619);
+    h2 = Math.imul(h2 ^ ch, 2246822519);
+    h1 ^= h1 >>> 16; h2 ^= h2 >>> 13;
+  }
+  h1 >>>= 0; h2 >>>= 0;
+  const hex = h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0');
+  return (hex + hex + hex + hex + hex + hex + hex + hex).slice(0, 64);
 }
 function randomHex(n) {
   const a = new Uint8Array(n);

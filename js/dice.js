@@ -110,9 +110,22 @@ const diceGame = {
       await sleep(50 + i * 18);
     }
 
-    const hash = await sha256(App.clientSeed + App.serverSeed + App.nonce);
-    const roll = rollFromHash(hash);
-    const nonce = App.nonce;
+    let hash, roll, nonce;
+    try {
+      hash = await sha256(App.clientSeed + App.serverSeed + App.nonce);
+      roll = rollFromHash(hash);
+      nonce = App.nonce;
+    } catch (err) {
+      console.error('roll failed, refunding bet', err);
+      App.balance += bet;
+      saveState();
+      updateBalance();
+      this.result.classList.add('hidden');
+      this.busy = false;
+      this.rollBtn.disabled = false;
+      toast('Roll failed — bet refunded', 'warn');
+      return;
+    }
     App.nonce++;
     App.clientSeed = randomHex(16);
     $('#diceNonce', this.el).textContent = nonce + 1;
