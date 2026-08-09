@@ -140,7 +140,7 @@ const plinkoGame = {
   },
 
   physics(b) {
-    b.vy = Math.min(b.vy + 0.42, 11);
+    b.vy = Math.min(b.vy + 0.55, 12);
     b.vx *= 0.995;
     b.vy *= 0.996;
     b.x += b.vx;
@@ -160,7 +160,7 @@ const plinkoGame = {
         b.x = p.x + nx * pr;
         b.y = p.y + ny * pr;
         b.vx = nx * 6.5 + (Math.random() - 0.5) * 3.0;
-        b.vy = Math.max(1.2, Math.abs(b.vy) * 0.35) + (Math.random() - 0.5) * 0.8;
+        b.vy = Math.max(3.2, Math.abs(b.vy) * 0.5) + (Math.random() - 0.5) * 1.0;
       }
     }
     // start settling at the bucket line
