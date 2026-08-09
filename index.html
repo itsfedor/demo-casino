@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ChainLuck — Demo Casino (Play Money Only)</title>
+<meta name="description" content="Demo crypto casino: provably-fair Dice, Plinko, Blackjack, Slots. 100% play money — no real funds, no blockchain transactions.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="bg-glow"></div>
+
+<header class="topbar">
+  <a class="brand" href="#/"><span class="brand-ico">⚡</span><span class="brand-name">ChainLuck</span><em class="demo-tag">DEMO</em></a>
+  <div class="topbar-right">
+    <button class="balance-chip" id="balanceChip" onclick="openWallet()" title="Open wallet">
+      <span class="chip-ico">👛</span><span id="balanceVal">10,000</span><span class="cur">DEMO</span>
+    </button>
+    <button class="wallet-btn" id="walletBtn" onclick="openWallet()">🦊 Connect</button>
+  </div>
+</header>
+
+<div class="demo-banner">🎯 DEMO MODE — 100% play money · no real funds · no blockchain transactions · 18+</div>
+
+<nav class="tabs" id="tabs">
+  <a href="#/" class="tab" data-route="">🏠 Lobby</a>
+  <a href="#/dice" class="tab" data-route="dice">🎲 Dice</a>
+  <a href="#/plinko" class="tab" data-route="plinko">🔺 Plinko</a>
+  <a href="#/blackjack" class="tab" data-route="blackjack">🃏 Blackjack</a>
+  <a href="#/slots" class="tab" data-route="slots">🎰 Slots</a>
+</nav>
+
+<main id="view"></main>
+
+<footer class="foot">
+  <div class="session">
+    <span>⏱ Session: <b id="sessionTime">00:00</b></span>
+    <span>Net: <b id="sessionNet">0</b> DEMO</span>
+    <span class="r">RTP ≈ 92–99%</span>
+  </div>
+  <p class="fine">ChainLuck is a <b>demo</b>. Every balance is fictional play money — nothing here has real value, and no crypto is ever moved, signed or sent. 18+. Play for fun, not for money.</p>
+</footer>
+
+<!-- Wallet modal -->
+<div class="overlay hidden" id="walletOverlay">
+  <div class="modal">
+    <div class="modal-head"><span>🦊 DemoMask <small>demo wallet</small></span><button class="modal-x" onclick="closeWallet()">✕</button></div>
+    <div class="modal-body">
+      <p class="muted">Demo wallet · play money only · read-only MetaMask connect · <b>no transactions are ever sent</b></p>
+      <div class="w-state">
+        <div class="w-addr" id="wAddr">Not connected</div>
+        <div class="w-type" id="wType"></div>
+        <div class="w-bal">Balance: <b id="wBal">0</b> DEMO</div>
+      </div>
+      <div class="w-actions" id="wActions">
+        <button class="btn btn-primary" onclick="connectMetaMask()">🦊 Connect MetaMask <small>(read-only)</small></button>
+        <button class="btn" onclick="connectSimulated()">🎭 Use simulated wallet</button>
+      </div>
+      <div class="w-tx hidden" id="wTx">
+        <div class="w-tx-row">
+          <button class="btn" onclick="demoDeposit()">＋ Deposit 10,000</button>
+          <button class="btn" onclick="demoWithdraw()">－ Withdraw 10,000</button>
+        </div>
+        <button class="btn btn-ghost" onclick="disconnectWallet()">Disconnect</button>
+      </div>
+    </div>
+    <div class="modal-foot muted">Demo only: the MetaMask connection just reads your address. Nothing is signed, sent, or stored on-chain.</div>
+  </div>
+</div>
+
+<!-- Fake tx modal -->
+<div class="overlay hidden" id="txOverlay">
+  <div class="modal modal-sm">
+    <div class="tx-spin" id="txSpin">⏳</div>
+    <div class="tx-status" id="txStatus">Sending…</div>
+    <div class="tx-hash muted" id="txHash"></div>
+    <button class="btn hidden" id="txOk" onclick="closeTx()">OK</button>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="js/app.js"></script>
+<script src="js/wallet.js"></script>
+<script src="js/dice.js"></script>
+<script src="js/plinko.js"></script>
+<script src="js/blackjack.js"></script>
+<script src="js/slots.js"></script>
+</body>
+</html>
