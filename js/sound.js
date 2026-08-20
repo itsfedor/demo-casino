@@ -1,5 +1,8 @@
 'use strict';
-/* WebAudio-synthesized SFX — no audio files, no network. Mute persists. */
+/* WebAudio-synthesized SFX — no audio files, no network. Mute persists.
+   Design follows the "rise, pause, click, finish" arc: subtle loops that
+   intensify, sparse betting phase, crisp result sounds, impactful but
+   non-fatiguing busts. */
 const sfx = (() => {
   let ctx = null;
   let muted = false;
@@ -30,7 +33,7 @@ const sfx = (() => {
       o.stop(t0 + dur + 0.03);
     } catch (e) { /* audio unavailable */ }
   }
-  function noise(dur, vol) {
+  function noise(dur, vol, filterFreq) {
     if (muted) return;
     try {
       const c = ac();
@@ -41,9 +44,53 @@ const sfx = (() => {
       const src = c.createBufferSource(), g = c.createGain();
       src.buffer = buf;
       g.gain.value = vol || 0.1;
-      src.connect(g).connect(c.destination);
+      if (filterFreq) {
+        const f = c.createBiquadFilter();
+        f.type = 'lowpass'; f.frequency.value = filterFreq;
+        src.connect(f).connect(g);
+      } else {
+        src.connect(g);
+      }
+      g.connect(c.destination);
       src.start();
     } catch (e) { /* audio unavailable */ }
+  }
+
+  /* ---- persistent flight engine loop (Crash) ---- */
+  let engOsc = null, engGain = null;
+  function engineStart() {
+    if (muted || engOsc) return;
+    try {
+      const c = ac();
+      engOsc = c.createOscillator();
+      engGain = c.createGain();
+      engOsc.type = 'sawtooth';
+      engOsc.frequency.value = 64;
+      engGain.gain.value = 0.0;
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.value = 420;
+      engOsc.connect(lp).connect(engGain).connect(c.destination);
+      engOsc.start();
+      engGain.gain.linearRampToValueAtTime(0.035, c.currentTime + 0.5);
+    } catch (e) { engOsc = null; }
+  }
+  function engineSet(p) { // p ∈ 0..1 — pitch/volume creep up with the multiplier
+    if (!engOsc || muted) return;
+    try {
+      engOsc.frequency.value = 64 + p * 150;
+      engGain.gain.value = 0.03 + p * 0.045;
+    } catch (e) { /* gone */ }
+  }
+  function engineStop() {
+    if (!engOsc) return;
+    try {
+      const o = engOsc, g = engGain, c = ctx;
+      g.gain.cancelScheduledValues(c.currentTime);
+      g.gain.setValueAtTime(g.gain.value || 0.03, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.12);
+      o.stop(c.currentTime + 0.15);
+    } catch (e) { /* already stopped */ }
+    engOsc = null; engGain = null;
   }
 
   return {
@@ -51,12 +98,30 @@ const sfx = (() => {
     toggle() {
       muted = !muted;
       try { localStorage.setItem('cl_muted', muted ? '1' : '0'); } catch (e) { /* blocked */ }
-      if (!muted) { tone(660, 0.08, 'sine', 0.1); }
+      if (muted) engineStop();
+      else tone(660, 0.08, 'sine', 0.1);
       return muted;
     },
+
+    /* UI + bets */
     click() { tone(520, 0.05, 'triangle', 0.07); },
     bet() { tone(320, 0.09, 'square', 0.06, 180); },
-    tick(p) { tone(300 + (p || 0) * 600, 0.05, 'sine', 0.05); }, // p ∈ 0..1, rising pitch
+
+    /* dice */
+    drum(p) { tone(85 + p * 55, 0.03, 'square', 0.05); }, // suspense roll, p ∈ 0..1 rising
+    tick(p) { tone(300 + (p || 0) * 600, 0.05, 'sine', 0.05); },
+
+    /* plinko */
+    drop() { tone(620, 0.16, 'sine', 0.05, 190); },
+    peg(row) { tone(170 + row * 26, 0.045, 'square', 0.035); }, // pitch rises down the board
+
+    /* slots */
+    spinTick() { tone(240, 0.02, 'square', 0.025); },
+    reelStop(i) { tone(150 - i * 12, 0.09, 'square', 0.09, 95); noise(0.05, 0.04, 900); },
+    antic(p) { tone(500 + p * 700, 0.06, 'sine', 0.07); }, // anticipation, rising
+    lineWin(k) { tone(620 + k * 130, 0.12, 'sine', 0.1); tone(930 + k * 130, 0.14, 'sine', 0.08, null, 0.08); },
+
+    /* results */
     win() { tone(523, 0.1, 'sine', 0.12); tone(659, 0.12, 'sine', 0.12, null, 0.09); tone(784, 0.16, 'sine', 0.12, null, 0.19); },
     bigwin() {
       [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.18, 'sine', 0.13, null, i * 0.09));
@@ -68,6 +133,11 @@ const sfx = (() => {
     coin() { tone(988, 0.07, 'square', 0.06); tone(1319, 0.12, 'square', 0.05, null, 0.06); },
     level() { [392, 523, 659, 784].forEach((f, i) => tone(f, 0.16, 'triangle', 0.13, null, i * 0.1)); },
     ach() { tone(784, 0.1, 'sine', 0.12); tone(988, 0.1, 'sine', 0.12, null, 0.1); tone(1319, 0.2, 'sine', 0.12, null, 0.2); },
+
+    /* crash flight arc */
+    engineStart, engineSet, engineStop,
+    takeoff() { tone(140, 0.5, 'triangle', 0.07, 520); },
+    flyaway() { engineStop(); noise(0.4, 0.17, 1400); tone(210, 0.45, 'sawtooth', 0.12, 55); },
   };
 })();
 window.sfx = sfx;

@@ -108,6 +108,7 @@ const Meta = {
 
     // XP = total wagered (classic comp model)
     const oldLevel = this.level;
+    const betWon = e.profit > 0;
     this.xp += e.bet;
     while (this.xp >= this.xpForLevel(this.level + 1)) {
       this.level++;
@@ -115,8 +116,12 @@ const Meta = {
       App.balance += reward;
       saveState();
       toast(`⬆️ Level ${this.level}! +${fmt(reward)} DEMO level reward`, 'success');
-      if (window.sfx) sfx.level();
-      celebrate(1);
+      // stagger meta audio AFTER the game's own result sound; confetti only
+      // when the triggering bet actually won — no celebration stacked on a loss
+      setTimeout(() => {
+        if (window.sfx) sfx.level();
+        if (betWon) celebrate(1);
+      }, 900);
     }
     if (this.level !== oldLevel) updateBalance();
 
@@ -163,7 +168,8 @@ const Meta = {
         App.balance += a.reward;
         saveState();
         toast(`🏆 Achievement: ${a.icon} ${a.name} · +${fmt(a.reward)} DEMO`, 'success');
-        if (window.sfx) sfx.ach();
+        // delayed so it never lands on top of a losing bet's sound
+        setTimeout(() => { if (window.sfx) sfx.ach(); }, 900);
       }
     }
   },

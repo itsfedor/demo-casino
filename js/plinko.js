@@ -146,7 +146,7 @@ const plinkoGame = {
     App.balance -= bet;
     saveState();
     updateBalance();
-    if (window.sfx) sfx.bet();
+    if (window.sfx) { sfx.bet(); sfx.drop(); }
 
     // provably-fair outcome: 12 hash bits = one L/R decision per peg row
     const hash = await nextRoundHash();
@@ -172,12 +172,14 @@ const plinkoGame = {
       trail: [],
       settling: false,
       done: false,
+      lastPegSfx: 0,
     });
   },
 
   physics(b) {
     if (b.settling) return;
-    b.vy = Math.min(b.vy + 0.5, 10);
+    // ~40% slower than the old tuning — a drop should take ~2s and be felt
+    b.vy = Math.min(b.vy + 0.36, 7.2);
     b.vx *= 0.995;
     b.vy *= 0.996;
     b.x += b.vx;
@@ -200,14 +202,21 @@ const plinkoGame = {
         b.y = p.y + ny * pr;
         const dot = b.vx * nx + b.vy * ny;
         if (dot < 0) { b.vx -= nx * dot; b.vy -= ny * dot; }
+        // peg tick, pitch rises down the board (rate-limited per ball)
+        const now = performance.now();
+        if (now - b.lastPegSfx > 50) {
+          b.lastPegSfx = now;
+          const row = clamp(Math.round((p.y - this.topPad) / this.rowGap), 0, this.ROWS - 1);
+          if (window.sfx) sfx.peg(row);
+        }
       }
     }
 
     // crossing peg row r → apply the hash-prescribed L/R kick
     while (b.nextRow < this.ROWS && b.y >= this.topPad + b.nextRow * this.rowGap) {
       const dir = b.path[b.nextRow] ? 1 : -1;
-      b.vx = dir * (2.5 + Math.random() * 3);
-      b.vy = Math.max(4.5, Math.abs(b.vy) * 0.8);
+      b.vx = dir * (1.8 + Math.random() * 2.2);
+      b.vy = Math.max(3.6, Math.abs(b.vy) * 0.8);
       b.nextRow++;
     }
 
@@ -229,9 +238,20 @@ const plinkoGame = {
     logBet({ game: 'plinko', bet: b.bet, mult, profit });
     AutoBet.onResult(this, profit);
     if (window.sfx) { profit > 0 ? (mult >= 10 ? sfx.bigwin() : sfx.win()) : sfx.lose(); }
+    if (profit > 0 && navigator.vibrate) { try { navigator.vibrate(25); } catch (e) { /* unsupported */ } }
   },
 
   tick() {
+    // A bad frame must never freeze the board: always schedule the next one.
+    try {
+      this.drawFrame();
+    } catch (e) {
+      console.error('plinko frame error', e);
+    }
+    this.raf = requestAnimationFrame(() => this.tick());
+  },
+
+  drawFrame() {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.W, this.H);
 
@@ -269,8 +289,8 @@ const plinkoGame = {
       this.physics(b);
       if (b.settling) {
         const tx = this.slots[b.slot];
-        b.x += (tx - b.x) * 0.18;
-        b.y += 1.8;
+        b.x += (tx - b.x) * 0.14;
+        b.y += 1.4;
         if (Math.abs(tx - b.x) < 0.8 && b.y > this.bucketY + 8) { b.done = true; this.finalize(b); }
       }
       b.trail.push({ x: b.x, y: b.y });
@@ -295,8 +315,6 @@ const plinkoGame = {
       ctx.fill();
     }
     this.balls = this.balls.filter(b => !b.done);
-
-    this.raf = requestAnimationFrame(() => this.tick());
   },
 };
 registerGame(plinkoGame);

@@ -1,8 +1,12 @@
 'use strict';
-/* Provably-fair Dice — roll 0.00–99.99, win if under/over target. 1% house edge (RTP 99%).
-   Rolls are integers k/100, k ∈ 0..9999.
-   Under c wins on k < 100c  → exactly c% of outcomes.
-   Over  wins on k ≥ 10000−100c → exactly c% of outcomes. Both modes pay 99/c. */
+/* Provably-fair Dice — roll 0.00–99.99. 1% house edge (RTP 99%).
+   Stake-style controls: the slider sets the TARGET on the number line (2–98),
+   the toggle picks which side you're betting — flipping it mirrors the chance
+   (under t → t%, over t → (100−t)%).
+   Rolls are integers k/100, k ∈ 0..9999:
+     under t wins on k < 100t   → exactly t%
+     over  t wins on k ≥ 100t   → exactly (100−t)%
+   Both pay 99/chance, so RTP is exactly 99.000% in both modes. */
 
 const diceGame = {
   id: 'dice',
@@ -11,6 +15,7 @@ const diceGame = {
   desc: 'Provably-fair rolls verified by SHA-256. Pick your chance and roll.',
   rolls: [],
   mode: 'under',
+  target: 50,
   busy: false,
 
   html() {
@@ -26,8 +31,8 @@ const diceGame = {
           </div>
         </div>
         <div class="bet-row">
-          <label>Chance to win — <b id="diceChanceVal">50</b>% · pays <b id="dicePayout">1.98×</b></label>
-          <input type="range" id="diceChance" min="1" max="95" value="50" step="1" aria-label="chance to win">
+          <label>Target <b id="diceTargetVal">50</b> — chance <b id="diceChanceVal">50</b>% · pays <b id="dicePayout">1.98×</b></label>
+          <input type="range" id="diceTarget" min="2" max="98" value="50" step="1" aria-label="roll target">
         </div>
         <div class="mode-toggle">
           <button class="seg active" id="segUnder">Roll under 50</button>
@@ -51,20 +56,21 @@ const diceGame = {
   init(el) {
     this.el = el;
     this.betIn = $('#diceBet', el);
-    this.chanceIn = $('#diceChance', el);
+    this.targetIn = $('#diceTarget', el);
     this.rollBtn = $('#diceRoll', el);
     this.result = $('#diceResult', el);
     this.rollNum = $('#diceRollNum', el);
     this.outcome = $('#diceOutcome', el);
     this.rollsList = $('#diceRolls', el);
     this.mode = 'under';
+    this.target = 50;
 
     try { this.rolls = JSON.parse(localStorage.getItem('cl_dice_rolls') || '[]'); } catch (e) { this.rolls = []; }
 
     this.renderRolls();
     this.updateLabels();
 
-    this.chanceIn.addEventListener('input', () => this.updateLabels());
+    this.targetIn.addEventListener('input', () => this.updateLabels());
     this.rollBtn.addEventListener('click', () => this.mainAction());
 
     $$('.qbtn', el).forEach(b => b.addEventListener('click', () => {
@@ -84,19 +90,24 @@ const diceGame = {
 
   mainAction() { this.doRoll(); },
 
+  chance() { return this.mode === 'under' ? this.target : 100 - this.target; },
+
   updateLabels() {
-    const chance = parseInt(this.chanceIn.value) || 50;
-    $('#diceChanceVal', this.el).textContent = chance;
-    $('#dicePayout', this.el).textContent = (99 / chance).toFixed(2) + '×';
-    $('#segUnder', this.el).textContent = 'Roll under ' + chance;
-    $('#segOver', this.el).textContent = 'Roll over ' + (100 - chance);
+    this.target = clamp(parseInt(this.targetIn.value) || 50, 2, 98);
+    const c = this.chance();
+    $('#diceTargetVal', this.el).textContent = this.target;
+    $('#diceChanceVal', this.el).textContent = c;
+    $('#dicePayout', this.el).textContent = (99 / c).toFixed(2) + '×';
+    $('#segUnder', this.el).textContent = 'Roll under ' + this.target;
+    $('#segOver', this.el).textContent = 'Roll over ' + this.target;
   },
 
   async doRoll() {
     if (this.busy) return;
     const bet = parseFloat(this.betIn.value);
     if (!canBet(bet)) { AutoBet.stop(this, 'Auto stopped'); return; }
-    const chance = clamp(parseInt(this.chanceIn.value) || 50, 1, 95);
+    this.target = clamp(parseInt(this.targetIn.value) || 50, 2, 98);
+    const chance = this.chance();
     this.busy = true;
     this.rollBtn.disabled = true;
 
@@ -110,10 +121,12 @@ const diceGame = {
     this.rollNum.className = 'roll-num';
     this.outcome.textContent = '';
 
-    // suspense animation
-    for (let i = 0; i < 14; i++) {
+    // ~3s suspense scramble with an accelerating drumroll
+    const steps = 16;
+    for (let i = 0; i < steps; i++) {
       this.rollNum.textContent = (Math.random() * 100).toFixed(2);
-      await sleep(50 + i * 18);
+      if (window.sfx) sfx.drum(i / (steps - 1));
+      await sleep(55 + i * 17);
     }
 
     let hash, roll, nonce;
@@ -134,9 +147,8 @@ const diceGame = {
     }
 
     const over = this.mode === 'over';
-    const target = over ? 100 - chance : chance;
-    // rolls are k/100 for k ∈ 0..9999: `k < 100·c` and `k ≥ 10000−100·c` both win exactly c%
-    const win = over ? roll >= target : roll < target;
+    const t = this.target;
+    const win = over ? roll >= t : roll < t;
     const mult = win ? 99 / chance : 0;
     const profit = win ? bet * (mult - 1) : -bet;
     if (win) {
@@ -144,6 +156,7 @@ const diceGame = {
       saveState();
     }
     updateBalance();
+    refreshFairPanel(this.el, 'dice');
     logBet({ game: 'dice', bet, mult, profit });
     AutoBet.onResult(this, profit);
     if (window.sfx) { win ? (mult >= 10 ? sfx.bigwin() : sfx.win()) : sfx.lose(); }
@@ -152,18 +165,17 @@ const diceGame = {
     this.rollNum.className = 'roll-num ' + (win ? 'win' : 'lose');
     const rel = over ? (win ? '≥' : '<') : (win ? '<' : '≥');
     this.outcome.textContent = win
-      ? `WIN +${fmt(profit)} DEMO · ${roll.toFixed(2)} ${rel} ${target}`
-      : `LOSE −${fmt(bet)} DEMO · ${roll.toFixed(2)} ${rel} ${target}`;
+      ? `WIN +${fmt(profit)} DEMO · ${roll.toFixed(2)} ${rel} ${t}`
+      : `LOSE −${fmt(bet)} DEMO · ${roll.toFixed(2)} ${rel} ${t}`;
     this.outcome.className = 'roll-outcome ' + (win ? 'win' : 'lose');
 
     this.rolls.unshift({
-      roll: roll.toFixed(2), target, over, win, profit, bet,
+      roll: roll.toFixed(2), target: t, over, win, profit, bet,
       hash: hash.slice(0, 16) + '…', nonce,
     });
     if (this.rolls.length > 8) this.rolls.pop();
     try { localStorage.setItem('cl_dice_rolls', JSON.stringify(this.rolls)); } catch (e) { /* blocked */ }
     this.renderRolls();
-    wireFairPanel(this.el, 'dice');
 
     this.busy = false;
     this.rollBtn.disabled = false;

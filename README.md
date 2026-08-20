@@ -49,12 +49,12 @@ Loads the actual game files in a VM sandbox and proves every paytable:
 
 ## Games
 
-- **🚀 Crash**: multiplier curve, manual or auto cash-out, crash history strip
+- **🚀 Crash**: Aviator-style continuous loop — 6s betting window (draining bar, simulated riders joining) → flight (canvas plane, parallax starfield, engine hum rising with the multiplier, riders cashing out live in the round-bets panel) → "FLEW AWAY" → repeat. Queue bets mid-flight, auto-cash-out, history strip (blue <2× / purple 2–10× / pink ≥10×). Round logic runs on a timer (hidden-tab safe); rendering on rAF.
 - **💣 Mines**: 5×5 grid, 1/3/5/10/24 mines, cash out any time
-- **🎲 Dice**: 1–95% win chance, pays 99/chance
-- **🔺 Plinko**: up to 8 balls in flight, 3 risk tables, canvas physics
+- **🎲 Dice**: Stake-style controls — slider sets the target (2–98), the under/over toggle picks the side and mirrors the chance; ~3s drumroll suspense
+- **🔺 Plinko**: up to 8 balls in flight, 3 risk tables, ~2s canvas-physics drops with peg-hit ticks (pitch rises down the board)
 - **🃏 Blackjack**: hit/stand/double, keyboard H/S/D
-- **🎰 Slots**: 3×3, 5 paylines, winning-line highlights
+- **🎰 Slots**: 3×3, 5 paylines, ~3s spins with per-reel stop clunks and the two-reels-match anticipation stretch
 
 ## Provably fair (Dice, Crash, Mines, Plinko path)
 

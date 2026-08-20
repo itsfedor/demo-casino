@@ -133,27 +133,29 @@ function fairPanel(id) {
     <div class="pf-revealed hidden" id="pfRevealed-${id}"></div>
   </div>`;
 }
+/* Update a fair panel's nonce/seed display without rebinding listeners. */
+function refreshFairPanel(el, id) {
+  const c = $('#pfClient-' + id, el), h = $('#pfHash-' + id, el);
+  const n = $('#pfNonce-' + id, el), nx = $('#pfNext-' + id, el);
+  if (c) c.textContent = App.clientSeed.slice(0, 16) + '…';
+  if (h) h.textContent = App.serverSeedHash.slice(0, 24) + '…';
+  if (n) n.textContent = App.nonce;
+  if (nx) nx.textContent = App.nonce;
+}
 function wireFairPanel(el, id) {
   const box = $('#pf-' + id, el);
   if (!box) return;
-  const upd = () => {
-    const c = $('#pfClient-' + id, el), h = $('#pfHash-' + id, el), n = $('#pfNonce-' + id, el), nx = $('#pfNext-' + id, el);
-    if (c) c.textContent = App.clientSeed.slice(0, 16) + '…';
-    if (h) h.textContent = App.serverSeedHash.slice(0, 24) + '…';
-    if (n) n.textContent = App.nonce;
-    if (nx) nx.textContent = App.nonce;
-  };
   const btn = $('#pfRotate-' + id, el);
   if (btn) btn.addEventListener('click', async () => {
     const revealed = await rotateSeeds();
     const rv = $('#pfRevealed-' + id, el);
     rv.classList.remove('hidden');
     rv.innerHTML = `Revealed server seed: <code>${revealed}</code><br>Check: SHA-256 of it equals the old commitment above. A new seed &amp; commitment are now active.`;
-    upd();
+    refreshFairPanel(el, id);
     toast('🔐 Seeds rotated — old server seed revealed', 'success');
     if (window.sfx) sfx.click();
   });
-  upd();
+  refreshFairPanel(el, id);
 }
 
 /* ---------- balance & bet guard ---------- */

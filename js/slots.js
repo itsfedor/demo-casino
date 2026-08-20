@@ -111,10 +111,12 @@ const slotsGame = {
     for (let c = 0; c < 3; c++) cells.push($$('#reel' + c + ' .cell', this.el));
     cells.forEach(col => col.forEach(cell => cell.classList.remove('win-cell')));
 
+    let lastTick = 0;
     const spinReel = (c, duration) => new Promise(res => {
       const t0 = performance.now();
       const step = (t) => {
         for (const cell of cells[c]) cell.textContent = this.pick().s;
+        if (t - lastTick > 85) { lastTick = t; if (window.sfx) sfx.spinTick(); }
         if (t - t0 < duration) requestAnimationFrame(step);
         else res();
       };
@@ -127,14 +129,23 @@ const slotsGame = {
         cells[c][r].classList.add('pop');
         setTimeout(() => cells[c][r].classList.remove('pop'), 320);
       }
+      if (window.sfx) sfx.reelStop(c);
     };
 
     (async () => {
-      const p1 = spinReel(0, 800).then(() => setCol(0, grid[0]));
-      const p2 = spinReel(1, 1100).then(() => setCol(1, grid[1]));
-      const p3 = spinReel(2, 1400).then(() => setCol(2, grid[2]));
-      await Promise.all([p1, p2, p3]);
-      await sleep(300);
+      const p1 = spinReel(0, 1000).then(() => setCol(0, grid[0]));
+      const p2 = spinReel(1, 1450).then(() => setCol(1, grid[1]));
+      await Promise.all([p1, p2]);
+      // anticipation: first two reels match on a payline → stretch the last
+      // reel with rising ticks — the signature slot tension beat
+      const antic = this.LINES.some(line =>
+        grid[line[0][0]][line[0][1]].s === grid[line[1][0]][line[1][1]].s);
+      if (antic && window.sfx) {
+        for (let k = 0; k < 7; k++) setTimeout(() => sfx.antic(k / 6), 150 + k * 170);
+      }
+      await spinReel(2, antic ? 3100 : 1900);
+      setCol(2, grid[2]);
+      await sleep(350);
       this.evalWin(grid, bet, cells);
       this.spinning = false;
       this.spinBtn.disabled = false;
@@ -162,12 +173,21 @@ const slotsGame = {
       updateBalance();
       this.resultEl.innerHTML = `<span class="win">WIN +${fmt(profit)} DEMO</span> <span class="muted">· lines ${wonLines.join(', ')}</span>`;
       toast('🎉 Win on line(s) ' + wonLines.join(', ') + '!');
+      if (navigator.vibrate) { try { navigator.vibrate(30); } catch (e) { /* unsupported */ } }
     } else {
       this.resultEl.innerHTML = `<span class="lose">LOSE −${fmt(bet)} DEMO</span>`;
     }
     logBet({ game: 'slots', bet, mult, profit });
     AutoBet.onResult(this, profit);
-    if (window.sfx) { win > 0 ? (mult >= 10 ? sfx.bigwin() : sfx.win()) : sfx.lose(); }
+    if (window.sfx) {
+      if (win > 0) {
+        if (mult >= 10) sfx.bigwin();
+        else sfx.win();
+        if (wonLines.length >= 2) wonLines.forEach((li, k) => setTimeout(() => sfx.lineWin(k), 350 + k * 180));
+      } else {
+        sfx.lose();
+      }
+    }
   },
 };
 registerGame(slotsGame);

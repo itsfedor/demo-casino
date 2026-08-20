@@ -554,6 +554,46 @@ input[type="range"] { width: 100%; accent-color: var(--cyan); margin-top: 8px; }
 .set-label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
 .set-div { height: 1px; background: var(--card-border); margin: 14px 0; }
 
+/* ---------- crash v2 (Aviator-style) ---------- */
+.cr-histstrip {
+  display: flex; gap: 5px; overflow-x: auto;
+  padding: 2px 0 10px; scrollbar-width: none;
+}
+.cr-histstrip::-webkit-scrollbar { display: none; }
+.cr-hist {
+  flex: 0 0 auto; font-size: 11.5px; font-weight: 800;
+  padding: 4px 10px; border-radius: 999px;
+  animation: chip-in .25s ease;
+}
+@keyframes chip-in { from { transform: scale(0.4); opacity: 0; } }
+.cr-hist.lo { background: rgba(96, 165, 250, 0.14); color: #60a5fa; }
+.cr-hist.mid { background: rgba(167, 139, 250, 0.16); color: #a78bfa; }
+.cr-hist.hi { background: rgba(244, 114, 182, 0.18); color: #f472b6; }
+.cr-riders {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 330px; overflow-y: auto;
+}
+.cr-rider {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 8px; align-items: baseline;
+  font-size: 12.5px; padding: 5px 9px; border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25); border: 1px solid var(--card-border);
+  animation: feed-in .2s ease;
+}
+.cr-rider.you { border-color: rgba(255, 213, 74, 0.5); }
+.cr-rider.cashed { border-color: rgba(74, 222, 128, 0.45); background: rgba(74, 222, 128, 0.08); }
+.cr-r-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-r-bet { color: var(--muted); font-variant-numeric: tabular-nums; }
+.cr-r-mult, .cr-r-win { font-weight: 800; text-align: right; min-width: 46px; font-variant-numeric: tabular-nums; }
+.btn-big.bet-green { background: linear-gradient(135deg, #22c55e, #16a34a); color: #04170a; }
+.btn-big.cancel { background: transparent; border: 1px solid rgba(248, 113, 113, 0.5); color: var(--red); }
+
+/* ---------- touch & press feedback (casino-standard responsiveness) ---------- */
+button { touch-action: manipulation; }
+.btn:active:not(:disabled), .qbtn:active, .seg:active, .icon-btn:active,
+.mn-tile:active:not(:disabled), .chip:active, .tab:active { transform: scale(0.96); }
+.btn-big:active:not(:disabled) { transform: scale(0.98); filter: brightness(1.15); }
+
 /* ---------- responsive ---------- */
 @media (max-width: 760px) {
   /* minmax(0,·) everywhere: plain `1fr` keeps an automatic content minimum
