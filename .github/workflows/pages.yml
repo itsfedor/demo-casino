@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Cache-bust asset URLs
+        run: sed -i "s/?v=[0-9]*/?v=${{ github.run_number }}/g" index.html
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

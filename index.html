@@ -4,32 +4,44 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ChainLuck — Demo Casino (Play Money Only)</title>
-<meta name="description" content="Demo crypto casino: provably-fair Dice, Plinko, Blackjack, Slots. 100% play money — no real funds, no blockchain transactions.">
+<meta name="description" content="Demo crypto casino: provably-fair Dice, Crash, Mines, real physics Plinko, Blackjack, Slots. 100% play money — no real funds, no blockchain transactions.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 <div class="bg-glow"></div>
 
-<header class="topbar">
-  <a class="brand" href="#/"><span class="brand-ico">⚡</span><span class="brand-name">ChainLuck</span><em class="demo-tag">DEMO</em></a>
-  <div class="topbar-right">
-    <button class="balance-chip" id="balanceChip" onclick="openWallet()" title="Open wallet">
-      <span class="chip-ico">👛</span><span id="balanceVal">10,000</span><span class="cur">DEMO</span>
-    </button>
-    <button class="wallet-btn" id="walletBtn" onclick="openWallet()">🦊 Connect</button>
-  </div>
-</header>
+<div class="head-sticky">
+  <header class="topbar">
+    <a class="brand" href="#/"><span class="brand-ico">⚡</span><span class="brand-name">ChainLuck</span><em class="demo-tag">DEMO</em></a>
+    <div class="topbar-right">
+      <button id="faucetBtn" class="icon-btn faucet hidden" title="Faucet: free top-up when broke">🚰</button>
+      <button id="dailyBtn" class="icon-btn gift" title="Daily bonus">🎁</button>
+      <button id="achBtn" class="icon-btn" title="Achievements">🏆</button>
+      <button id="soundBtn" class="icon-btn" title="Sound on/off">🔊</button>
+      <button id="settingsBtn" class="icon-btn" title="Settings">⚙️</button>
+      <span class="lvl-chip" id="lvlChip" title="Your level">Lv 1</span>
+      <button class="balance-chip" id="balanceChip" onclick="openWallet()" title="Open wallet">
+        <span class="chip-ico">👛</span><span id="balanceVal">10,000</span><span class="cur">DEMO</span>
+      </button>
+      <button class="wallet-btn" id="walletBtn" onclick="openWallet()">🦊 Connect</button>
+    </div>
+    <div class="xp-wrap" id="xpWrap"><div class="xp-bar"><div class="xp-fill" id="xpFill"></div></div></div>
+  </header>
 
-<div class="demo-banner">🎯 DEMO MODE — 100% play money · no real funds · no blockchain transactions · 18+</div>
+  <div class="demo-banner">🎯 DEMO MODE — 100% play money · no real funds · no blockchain transactions · 18+</div>
 
-<nav class="tabs" id="tabs">
-  <a href="#/" class="tab" data-route="">🏠 Lobby</a>
-  <a href="#/dice" class="tab" data-route="dice">🎲 Dice</a>
-  <a href="#/plinko" class="tab" data-route="plinko">🔺 Plinko</a>
-  <a href="#/blackjack" class="tab" data-route="blackjack">🃏 Blackjack</a>
-  <a href="#/slots" class="tab" data-route="slots">🎰 Slots</a>
-</nav>
+  <nav class="tabs" id="tabs">
+    <a href="#/" class="tab" data-route="">🏠 Lobby</a>
+    <a href="#/crash" class="tab" data-route="crash">🚀 Crash</a>
+    <a href="#/mines" class="tab" data-route="mines">💣 Mines</a>
+    <a href="#/dice" class="tab" data-route="dice">🎲 Dice</a>
+    <a href="#/plinko" class="tab" data-route="plinko">🔺 Plinko</a>
+    <a href="#/blackjack" class="tab" data-route="blackjack">🃏 Blackjack</a>
+    <a href="#/slots" class="tab" data-route="slots">🎰 Slots</a>
+    <a href="#/history" class="tab" data-route="history">📋 History</a>
+  </nav>
+</div>
 
 <main id="view"></main>
 
@@ -37,7 +49,7 @@
   <div class="session">
     <span>⏱ Session: <b id="sessionTime">00:00</b></span>
     <span>Net: <b id="sessionNet">0</b> DEMO</span>
-    <span class="r">RTP ≈ 92–99%</span>
+    <span class="r">RTP 92–99% · 🎲💎🚀 provably fair</span>
   </div>
   <p class="fine">ChainLuck is a <b>demo</b>. Every balance is fictional play money — nothing here has real value, and no crypto is ever moved, signed or sent. 18+. Play for fun, not for money.</p>
 </footer>
@@ -79,13 +91,55 @@
   </div>
 </div>
 
-<div class="toast-wrap" id="toastWrap"></div>
+<!-- Settings modal -->
+<div class="overlay hidden" id="settingsOverlay">
+  <div class="modal">
+    <div class="modal-head"><span>⚙️ Settings</span><button class="modal-x" onclick="this.closest('.overlay').classList.add('hidden')">✕</button></div>
+    <div class="modal-body">
+      <label class="set-label">Session loss limit (DEMO)
+        <input type="number" id="lossLimitIn" class="num-in" min="0" step="100" placeholder="0 = off">
+      </label>
+      <p class="muted" style="font-size:12.5px">Betting is blocked once your session net drops below −limit. A guardrail, not a challenge.</p>
+      <button class="btn btn-primary" id="lossLimitSave">Save</button>
+      <div class="set-div"></div>
+      <button class="btn btn-danger" id="resetDataBtn">🗑 Reset all demo data</button>
+    </div>
+    <div class="modal-foot muted">Resets balance to 10,000 DEMO and clears XP, achievements, history and seeds.</div>
+  </div>
+</div>
 
-<script src="js/app.js?v=5"></script>
-<script src="js/wallet.js?v=5"></script>
-<script src="js/dice.js?v=5"></script>
-<script src="js/plinko.js?v=5"></script>
-<script src="js/blackjack.js?v=5"></script>
-<script src="js/slots.js?v=5"></script>
+<!-- Achievements modal -->
+<div class="overlay hidden" id="achOverlay">
+  <div class="modal modal-wide">
+    <div class="modal-head"><span>🏆 Achievements <small id="achProgress"></small></span><button class="modal-x" onclick="this.closest('.overlay').classList.add('hidden')">✕</button></div>
+    <div class="modal-body"><div id="achList" class="ach-list"></div></div>
+  </div>
+</div>
+
+<!-- Weekly race leaderboard modal -->
+<div class="overlay hidden" id="leaderboardOverlay">
+  <div class="modal">
+    <div class="modal-head"><span>🏁 Weekly wager race <small>resets Monday</small></span><button class="modal-x" onclick="this.closest('.overlay').classList.add('hidden')">✕</button></div>
+    <div class="modal-body"><div id="lbList" class="lb-list"></div></div>
+    <div class="modal-foot muted">Your real wagers count. Rivals are simulated demo players.</div>
+  </div>
+</div>
+
+<canvas id="confetti" class="confetti" aria-hidden="true"></canvas>
+<div class="toast-wrap" id="toastWrap" aria-live="polite"></div>
+
+<script src="js/app.js?v=6"></script>
+<script src="js/sound.js?v=6"></script>
+<script src="js/meta.js?v=6"></script>
+<script src="js/social.js?v=6"></script>
+<script src="js/autobet.js?v=6"></script>
+<script src="js/history.js?v=6"></script>
+<script src="js/wallet.js?v=6"></script>
+<script src="js/dice.js?v=6"></script>
+<script src="js/plinko.js?v=6"></script>
+<script src="js/blackjack.js?v=6"></script>
+<script src="js/slots.js?v=6"></script>
+<script src="js/crash.js?v=6"></script>
+<script src="js/mines.js?v=6"></script>
 </body>
 </html>
