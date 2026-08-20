@@ -1,22 +1,27 @@
 'use strict';
-/* Plinko — canvas physics ball drop. 12 rows of pegs, 13 payout slots, 3 risk levels. */
+/* Plinko — 12 peg rows, 13 payout slots, 3 risk levels, multi-ball.
+   Provably fair: the round hash's first 12 bits are the L/R path, one per row.
+   The number of 1-bits is binomial(12, ½), so the slot distribution is exactly
+   binomial and the RTP below is exact (≈99% per table, verified in scripts/rtp-check.mjs):
+     EV = Σ C(12,k)/4096 · mult[k]  ≈ 0.99
+   The canvas physics animates the prescribed path — looks organic, pays exactly. */
 
 const plinkoGame = {
   id: 'plinko',
   title: 'Plinko',
   icon: '🔺',
-  desc: 'Drop the ball through the peg field and chase the multipliers.',
+  desc: 'Drop balls through the peg field and chase the edge multipliers.',
   MULT: {
-    low:  [0.5, 0.7, 1.0, 1.4, 2.0, 2.8, 4.0, 2.8, 2.0, 1.4, 1.0, 0.7, 0.5],
-    med:  [0.3, 0.5, 0.8, 1.3, 2.0, 3.5, 6.0, 3.5, 2.0, 1.3, 0.8, 0.5, 0.3],
-    high: [0.2, 0.4, 0.7, 1.2, 2.4, 5.0, 12.0, 5.0, 2.4, 1.2, 0.7, 0.4, 0.2],
+    low:  [10, 3, 1.6, 1.4, 1.1, 1, 0.5, 1, 1.1, 1.4, 1.6, 3, 10],
+    med:  [33, 11, 4, 2, 1.1, 0.6, 0.3, 0.6, 1.1, 2, 4, 11, 33],
+    high: [170, 24, 8.1, 2, 0.7, 0.2, 0.2, 0.2, 0.7, 2, 8.1, 24, 170],
   },
   ROWS: 12,
+  MAX_BALLS: 8,
   W: 460, H: 560,
   balls: [],
   raf: null,
   risk: 'med',
-  busy: false,
   lastSlot: -1,
 
   html() {
@@ -27,6 +32,9 @@ const plinkoGame = {
         <div class="bet-row">
           <label>Bet amount (DEMO)</label>
           <input type="number" id="pkBet" class="num-in" value="100" min="1" step="1">
+          <div class="quick-bets">
+            ${[10, 50, 100, 500, 1000].map(v => `<button class="qbtn" data-v="${v}">${v}</button>`).join('')}
+          </div>
         </div>
         <div class="bet-row">
           <label>Risk</label>
@@ -37,13 +45,14 @@ const plinkoGame = {
           </div>
         </div>
         <button class="btn btn-big" id="pkDrop">🔻 Drop ball</button>
+        ${AutoBet.panelHtml()}
         <canvas id="pkCanvas" class="pk-canvas"></canvas>
-        <div class="pk-result" id="pkResult"></div>
+        <div class="pk-result" id="pkResult" aria-live="polite"></div>
       </div>
       <div class="game-card">
         <h3>Payouts</h3>
         <div id="pkTable" class="pk-table"></div>
-        <p class="muted" style="margin-top:10px;font-size:12.5px">Multipliers apply to your bet. A drop below 1.00× loses part of the bet — that is the house edge.</p>
+        <p class="muted" style="margin-top:10px;font-size:12.5px">Rare edge slots pay big; the common center pays under 1× — that is the house edge. Up to 8 balls in flight at once.</p>
       </div>
     </div>`;
   },
@@ -56,8 +65,8 @@ const plinkoGame = {
     this.resultEl = $('#pkResult', el);
     this.risk = 'med';
     this.balls = [];
-    this.busy = false;
     this.lastSlot = -1;
+    this.betIn = $('#pkBet', el);
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = this.W * dpr;
@@ -77,15 +86,31 @@ const plinkoGame = {
       $$('.seg[data-risk]', el).forEach(x => x.classList.toggle('active', x === b));
       this.renderTable();
     }));
-    this.dropBtn.addEventListener('click', () => this.drop());
+    $$('.qbtn', el).forEach(b => b.addEventListener('click', () => { this.betIn.value = b.dataset.v; }));
+    this.dropBtn.addEventListener('click', () => this.mainAction());
+    AutoBet.wire(el, this);
     this.renderTable();
     this.tick();
   },
 
   destroy() {
+    AutoBet.stop(this);
+    // refund any balls still in flight — their bets were debited at drop time
+    let refunded = false;
+    for (const b of this.balls) {
+      if (!b.done) { App.balance += b.bet; refunded = true; }
+    }
+    if (refunded) {
+      saveState();
+      updateBalance();
+      toast('Balls in flight refunded');
+    }
+    this.balls = [];
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = null;
   },
+
+  mainAction() { this.drop(); },
 
   buildPegs() {
     this.pegs = [];
@@ -108,34 +133,45 @@ const plinkoGame = {
     const t = $('#pkTable', this.el);
     if (!t) return;
     const mults = this.MULT[this.risk];
-    t.innerHTML = mults.map((m, i) => {
-      const col = m >= 5 ? 'var(--gold)' : m >= 1.5 ? 'var(--green)' : m >= 1 ? 'var(--cyan)' : 'var(--red)';
-      return `<span class="pk-chip" style="color:${col};border-color:${col}55">${m.toFixed(1)}×</span>`;
+    t.innerHTML = mults.map(m => {
+      const col = m >= 10 ? 'var(--gold)' : m >= 1.5 ? 'var(--green)' : m >= 1 ? 'var(--cyan)' : 'var(--red)';
+      return `<span class="pk-chip" style="color:${col};border-color:${col}55">${m}×</span>`;
     }).join('');
   },
 
-  drop() {
-    if (this.busy) return;
-    const bet = parseFloat($('#pkBet', this.el).value);
-    if (!canBet(bet)) { toast('Enter a valid bet you can afford', 'warn'); return; }
-    this.busy = true;
-    this.dropBtn.disabled = true;
+  async drop() {
+    if (this.balls.length >= this.MAX_BALLS) { toast('Too many balls in flight', 'warn'); return; }
+    const bet = parseFloat(this.betIn.value);
+    if (!canBet(bet)) { AutoBet.stop(this, 'Auto stopped'); return; }
     App.balance -= bet;
     saveState();
     updateBalance();
-    this.resultEl.innerHTML = '';
-    this.lastSlot = -1;
+    if (window.sfx) sfx.bet();
+
+    // provably-fair outcome: 12 hash bits = one L/R decision per peg row
+    const hash = await nextRoundHash();
+    const v = parseInt(hash.slice(0, 3), 16); // 12 bits
+    const path = [];
+    let slot = 0;
+    for (let r = 0; r < 12; r++) {
+      const bit = (v >> (11 - r)) & 1;
+      path.push(bit);
+      slot += bit; // number of rights = final slot index
+    }
+
     this.balls.push({
       x: this.W / 2,
       y: this.topPad - 24,
-      vx: (Math.random() - 0.5) * 1.6,
+      vx: (Math.random() - 0.5) * 1.2,
       vy: 0,
       bet,
+      path,
+      nextRow: 0,
+      slot,
       mults: this.MULT[this.risk],
       trail: [],
       settling: false,
       done: false,
-      slotIdx: 0,
     });
   },
 
@@ -146,10 +182,12 @@ const plinkoGame = {
     b.vy *= 0.996;
     b.x += b.vx;
     b.y += b.vy;
+
     // walls
     if (b.x < this.ballR) { b.x = this.ballR; b.vx = Math.abs(b.vx) * 0.75; }
     if (b.x > this.W - this.ballR) { b.x = this.W - this.ballR; b.vx = -Math.abs(b.vx) * 0.75; }
-    // pegs
+
+    // peg collisions — elastic push-out only (direction comes from the path below)
     const pr = this.pegR + this.ballR;
     for (const p of this.pegs) {
       if (Math.abs(p.y - b.y) > pr + 4) continue;
@@ -160,37 +198,37 @@ const plinkoGame = {
         const nx = dx / d, ny = dy / d;
         b.x = p.x + nx * pr;
         b.y = p.y + ny * pr;
-        // remove the velocity component pushing into the peg (prevents rubbing)
         const dot = b.vx * nx + b.vy * ny;
         if (dot < 0) { b.vx -= nx * dot; b.vy -= ny * dot; }
-        // decisive lateral kick away from the peg + keep descending
-        b.vx = (nx >= 0 ? 1 : -1) * (4 + Math.random() * 4);
-        b.vy = Math.max(5.0, Math.abs(b.vy) * 0.85);
       }
     }
+
+    // crossing peg row r → apply the hash-prescribed L/R kick
+    while (b.nextRow < this.ROWS && b.y >= this.topPad + b.nextRow * this.rowGap) {
+      const dir = b.path[b.nextRow] ? 1 : -1;
+      b.vx = dir * (2.5 + Math.random() * 3);
+      b.vy = Math.max(4.5, Math.abs(b.vy) * 0.8);
+      b.nextRow++;
+    }
+
     // start settling at the bucket line
-    if (!b.settling && b.y >= this.bucketY - this.ballR) {
+    if (b.y >= this.bucketY - this.ballR) {
       b.settling = true;
-      let best = 0, bd = 1e9;
-      for (let i = 0; i < this.slots.length; i++) {
-        const d = Math.abs(b.x - this.slots[i]);
-        if (d < bd) { bd = d; best = i; }
-      }
-      b.slotIdx = best;
     }
   },
 
   finalize(b) {
-    const mult = b.mults[b.slotIdx];
+    const mult = b.mults[b.slot];
     const ret = b.bet * mult;
     const profit = ret - b.bet;
     App.balance += ret;
     saveState();
     updateBalance();
-    this.lastSlot = b.slotIdx;
-    this.resultEl.innerHTML = `<span class="${profit >= 0 ? 'win' : 'lose'}">${mult.toFixed(2)}×</span> ${profit >= 0 ? '+' : '−'}${fmt(Math.abs(profit))} DEMO`;
-    this.busy = false;
-    this.dropBtn.disabled = false;
+    this.lastSlot = b.slot;
+    this.resultEl.innerHTML = `<span class="${profit >= 0 ? 'win' : 'lose'}">${mult}×</span> ${profit >= 0 ? '+' : '−'}${fmt(Math.abs(profit))} DEMO`;
+    logBet({ game: 'plinko', bet: b.bet, mult, profit });
+    AutoBet.onResult(this, profit);
+    if (window.sfx) { profit > 0 ? (mult >= 10 ? sfx.bigwin() : sfx.win()) : sfx.lose(); }
   },
 
   tick() {
@@ -208,13 +246,13 @@ const plinkoGame = {
     for (let i = 0; i < this.slots.length; i++) {
       const x = this.slots[i];
       const m = mults[i];
-      const col = m >= 5 ? '#ffd54a' : m >= 1.5 ? '#4ade80' : m >= 1 ? '#38bdf8' : '#f87171';
+      const col = m >= 10 ? '#ffd54a' : m >= 1.5 ? '#4ade80' : m >= 1 ? '#38bdf8' : '#f87171';
       ctx.fillStyle = col + (this.lastSlot === i ? 'ff' : '44');
       ctx.fillRect(x - 13, this.bucketY, 26, this.H - this.bucketY);
       ctx.fillStyle = '#e2e8f0';
-      ctx.font = '11px system-ui, sans-serif';
+      ctx.font = '10px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(m.toFixed(1) + '×', x, this.bucketY + 17);
+      ctx.fillText(String(m), x, this.bucketY + 17);
     }
 
     // pegs
@@ -230,10 +268,10 @@ const plinkoGame = {
       if (b.done) continue;
       this.physics(b);
       if (b.settling) {
-        const tx = this.slots[b.slotIdx];
+        const tx = this.slots[b.slot];
         b.x += (tx - b.x) * 0.18;
         b.y += 1.8;
-        if (Math.abs(tx - b.x) < 0.8) { b.done = true; this.finalize(b); }
+        if (Math.abs(tx - b.x) < 0.8 && b.y > this.bucketY + 8) { b.done = true; this.finalize(b); }
       }
       b.trail.push({ x: b.x, y: b.y });
       if (b.trail.length > 14) b.trail.shift();

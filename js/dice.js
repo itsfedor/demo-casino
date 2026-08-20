@@ -1,5 +1,8 @@
 'use strict';
-/* Provably-fair Dice — roll 0.00–99.99, win if under/over target. 1% house edge (RTP 99%). */
+/* Provably-fair Dice — roll 0.00–99.99, win if under/over target. 1% house edge (RTP 99%).
+   Rolls are integers k/100, k ∈ 0..9999.
+   Under c wins on k < 100c  → exactly c% of outcomes.
+   Over  wins on k ≥ 10000−100c → exactly c% of outcomes. Both modes pay 99/c. */
 
 const diceGame = {
   id: 'dice',
@@ -24,22 +27,19 @@ const diceGame = {
         </div>
         <div class="bet-row">
           <label>Chance to win — <b id="diceChanceVal">50</b>% · pays <b id="dicePayout">1.98×</b></label>
-          <input type="range" id="diceChance" min="1" max="95" value="50" step="1">
+          <input type="range" id="diceChance" min="1" max="95" value="50" step="1" aria-label="chance to win">
         </div>
         <div class="mode-toggle">
           <button class="seg active" id="segUnder">Roll under 50</button>
           <button class="seg" id="segOver">Roll over 50</button>
         </div>
         <button class="btn btn-big" id="diceRoll">🎲 Roll</button>
+        ${AutoBet.panelHtml()}
         <div class="roll-result hidden" id="diceResult">
           <div class="roll-num" id="diceRollNum">—</div>
           <div class="roll-outcome" id="diceOutcome"></div>
         </div>
-        <div class="pf-panel">
-          <div>Client seed: <code id="diceClientSeed"></code></div>
-          <div>Server seed hash (SHA-256): <code id="diceServerHash"></code></div>
-          <div>Nonce: <span id="diceNonce">0</span> · <span class="muted">server seed is revealed after each roll</span></div>
-        </div>
+        ${fairPanel('dice')}
       </div>
       <div class="game-card">
         <h3>Recent rolls</h3>
@@ -61,13 +61,11 @@ const diceGame = {
 
     try { this.rolls = JSON.parse(localStorage.getItem('cl_dice_rolls') || '[]'); } catch (e) { this.rolls = []; }
 
-    $('#diceClientSeed', el).textContent = App.clientSeed;
-    $('#diceServerHash', el).textContent = App.serverSeedHash;
     this.renderRolls();
     this.updateLabels();
 
     this.chanceIn.addEventListener('input', () => this.updateLabels());
-    this.rollBtn.addEventListener('click', () => this.doRoll());
+    this.rollBtn.addEventListener('click', () => this.mainAction());
 
     $$('.qbtn', el).forEach(b => b.addEventListener('click', () => {
       this.betIn.value = b.dataset.v;
@@ -75,9 +73,16 @@ const diceGame = {
     const u = $('#segUnder', el), o = $('#segOver', el);
     u.addEventListener('click', () => { this.mode = 'under'; u.classList.add('active'); o.classList.remove('active'); this.updateLabels(); });
     o.addEventListener('click', () => { this.mode = 'over'; o.classList.add('active'); u.classList.remove('active'); this.updateLabels(); });
+
+    AutoBet.wire(el, this);
+    wireFairPanel(el, 'dice');
   },
 
-  destroy() { /* nothing persistent */ },
+  destroy() {
+    AutoBet.stop(this);
+  },
+
+  mainAction() { this.doRoll(); },
 
   updateLabels() {
     const chance = parseInt(this.chanceIn.value) || 50;
@@ -90,14 +95,15 @@ const diceGame = {
   async doRoll() {
     if (this.busy) return;
     const bet = parseFloat(this.betIn.value);
-    if (!canBet(bet)) { toast('Enter a valid bet you can afford', 'warn'); return; }
-    const chance = Math.min(95, Math.max(1, parseInt(this.chanceIn.value) || 50));
+    if (!canBet(bet)) { AutoBet.stop(this, 'Auto stopped'); return; }
+    const chance = clamp(parseInt(this.chanceIn.value) || 50, 1, 95);
     this.busy = true;
     this.rollBtn.disabled = true;
 
     App.balance -= bet;
     saveState();
     updateBalance();
+    if (window.sfx) sfx.bet();
 
     this.result.classList.remove('hidden');
     this.rollNum.textContent = '—';
@@ -112,9 +118,9 @@ const diceGame = {
 
     let hash, roll, nonce;
     try {
-      hash = await sha256(App.clientSeed + App.serverSeed + App.nonce);
+      hash = await nextRoundHash();
       roll = rollFromHash(hash);
-      nonce = App.nonce;
+      nonce = App.nonce - 1;
     } catch (err) {
       console.error('roll failed, refunding bet', err);
       App.balance += bet;
@@ -126,37 +132,38 @@ const diceGame = {
       toast('Roll failed — bet refunded', 'warn');
       return;
     }
-    App.nonce++;
-    App.clientSeed = randomHex(16);
-    $('#diceNonce', this.el).textContent = nonce + 1;
-    $('#diceClientSeed', this.el).textContent = App.clientSeed;
 
     const over = this.mode === 'over';
     const target = over ? 100 - chance : chance;
-    const win = over ? roll > target : roll < target;
-    const mult = 99 / chance;
+    // rolls are k/100 for k ∈ 0..9999: `k < 100·c` and `k ≥ 10000−100·c` both win exactly c%
+    const win = over ? roll >= target : roll < target;
+    const mult = win ? 99 / chance : 0;
     const profit = win ? bet * (mult - 1) : -bet;
     if (win) {
       App.balance += bet * mult;
       saveState();
     }
     updateBalance();
+    logBet({ game: 'dice', bet, mult, profit });
+    AutoBet.onResult(this, profit);
+    if (window.sfx) { win ? (mult >= 10 ? sfx.bigwin() : sfx.win()) : sfx.lose(); }
 
     this.rollNum.textContent = roll.toFixed(2);
     this.rollNum.className = 'roll-num ' + (win ? 'win' : 'lose');
-    const cmp = win ? (over ? '>' : '<') : (over ? '≤' : '≥');
+    const rel = over ? (win ? '≥' : '<') : (win ? '<' : '≥');
     this.outcome.textContent = win
-      ? `WIN +${fmt(profit)} DEMO · ${roll.toFixed(2)} ${cmp} ${target}`
-      : `LOSE −${fmt(bet)} DEMO · ${roll.toFixed(2)} ${cmp} ${target}`;
+      ? `WIN +${fmt(profit)} DEMO · ${roll.toFixed(2)} ${rel} ${target}`
+      : `LOSE −${fmt(bet)} DEMO · ${roll.toFixed(2)} ${rel} ${target}`;
     this.outcome.className = 'roll-outcome ' + (win ? 'win' : 'lose');
 
     this.rolls.unshift({
       roll: roll.toFixed(2), target, over, win, profit, bet,
-      hash: hash.slice(0, 16) + '…', seed: App.serverSeed.slice(0, 12) + '…', nonce,
+      hash: hash.slice(0, 16) + '…', nonce,
     });
     if (this.rolls.length > 8) this.rolls.pop();
-    localStorage.setItem('cl_dice_rolls', JSON.stringify(this.rolls));
+    try { localStorage.setItem('cl_dice_rolls', JSON.stringify(this.rolls)); } catch (e) { /* blocked */ }
     this.renderRolls();
+    wireFairPanel(this.el, 'dice');
 
     this.busy = false;
     this.rollBtn.disabled = false;
@@ -168,7 +175,7 @@ const diceGame = {
     this.rollsList.innerHTML = this.rolls.map(r => `
       <div class="roll-row ${r.win ? 'win' : 'lose'}">
         <span class="rr-roll">${r.roll}</span>
-        <span class="rr-info">${r.over ? '>' : '<'} ${r.target} · nonce ${r.nonce} · ${r.hash}</span>
+        <span class="rr-info">${r.over ? '≥' : '<'} ${r.target} · nonce ${r.nonce} · ${r.hash}</span>
         <span class="rr-profit ${r.win ? 'win' : 'lose'}">${r.win ? '+' : '−'}${fmt(Math.abs(r.profit))}</span>
       </div>`).join('');
   },

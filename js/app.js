@@ -16,6 +16,7 @@ const App = {
 const $ = (sel, el) => (el || document).querySelector(sel);
 const $$ = (sel, el) => [...(el || document).querySelectorAll(sel)];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 function fmt(n) {
   return Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -36,7 +37,10 @@ function loadState() {
       const s = JSON.parse(seed);
       App.serverSeed = s.serverSeed || '';
       App.serverSeedHash = s.hash || '';
+      App.nonce = Number.isFinite(s.nonce) ? s.nonce : 0;
     }
+    const ll = localStorage.getItem('cl_loss_limit');
+    if (ll !== null) App.lossLimit = parseFloat(ll) || 0;
   } catch (e) { /* fresh state */ }
   App.sessionStartBalance = App.balance;
 }
@@ -45,8 +49,15 @@ function saveState() {
   if (App.wallet) localStorage.setItem('cl_wallet', JSON.stringify(App.wallet));
   else localStorage.removeItem('cl_wallet');
 }
+function saveSeeds() {
+  localStorage.setItem('cl_seeds', JSON.stringify({
+    serverSeed: App.serverSeed, hash: App.serverSeedHash, nonce: App.nonce,
+  }));
+}
 
-/* ---------- provably-fair primitives ---------- */
+/* ---------- provably-fair primitives ----------
+   Demo model: the "server" seed lives in your browser's storage next to its
+   SHA-256 commitment. Rotate & reveal it any time to verify past rounds. */
 async function sha256(str) {
   // crypto.subtle exists only on secure contexts (https / localhost).
   // Fallback below keeps the game working from file:// or plain http.
@@ -72,16 +83,77 @@ function randomHex(n) {
   crypto.getRandomValues(a);
   return [...a].map(x => x.toString(16).padStart(2, '0')).join('');
 }
+
+/* Rejection sampling: 2^52 % 10000 = 496, so the top 496 values of the
+   13-hex-digit space are discarded. Without this, rolls 0.00–4.95 would be
+   microscopically more likely than the rest. */
 function rollFromHash(hash) {
-  return parseInt(hash.slice(0, 13), 16) % 10000 / 100;
+  const limit = 2 ** 52 - (2 ** 52 % 10000);
+  for (let off = 0; off + 13 <= hash.length; off += 13) {
+    const v = parseInt(hash.slice(off, off + 13), 16);
+    if (v < limit) return (v % 10000) / 100;
+  }
+  return 0;
 }
+
 async function initSeeds() {
   if (!App.serverSeed) {
     App.serverSeed = randomHex(32);
     App.serverSeedHash = await sha256(App.serverSeed);
-    localStorage.setItem('cl_seeds', JSON.stringify({ serverSeed: App.serverSeed, hash: App.serverSeedHash }));
+    saveSeeds();
   }
   if (!App.clientSeed) App.clientSeed = randomHex(16);
+}
+/* Reveals the current server seed, generates a fresh commitment, resets the nonce. */
+async function rotateSeeds() {
+  const revealed = App.serverSeed;
+  App.serverSeed = randomHex(32);
+  App.serverSeedHash = await sha256(App.serverSeed);
+  App.nonce = 0;
+  App.clientSeed = randomHex(16);
+  saveSeeds();
+  return revealed;
+}
+/* One round = one hash. Standard provably-fair input:
+   sha256(clientSeed + ':' + serverSeed + ':' + nonce), nonce increments per use. */
+async function nextRoundHash() {
+  const h = await sha256(App.clientSeed + ':' + App.serverSeed + ':' + App.nonce);
+  App.nonce++;
+  saveSeeds();
+  return h;
+}
+/* Shared "rotate & reveal" panel markup for hash-based games. */
+function fairPanel(id) {
+  return `
+  <div class="pf-panel" id="pf-${id}">
+    <div>Client seed: <code id="pfClient-${id}">${App.clientSeed.slice(0, 16)}…</code></div>
+    <div>Server seed hash: <code id="pfHash-${id}">${App.serverSeedHash.slice(0, 24)}…</code></div>
+    <div>Nonce: <span id="pfNonce-${id}">${App.nonce}</span> · next round uses <code>sha256(client:server:<span id="pfNext-${id}">${App.nonce}</span>)</code></div>
+    <button class="btn btn-ghost pf-rotate" id="pfRotate-${id}">🔄 Rotate &amp; reveal server seed</button>
+    <div class="pf-revealed hidden" id="pfRevealed-${id}"></div>
+  </div>`;
+}
+function wireFairPanel(el, id) {
+  const box = $('#pf-' + id, el);
+  if (!box) return;
+  const upd = () => {
+    const c = $('#pfClient-' + id, el), h = $('#pfHash-' + id, el), n = $('#pfNonce-' + id, el), nx = $('#pfNext-' + id, el);
+    if (c) c.textContent = App.clientSeed.slice(0, 16) + '…';
+    if (h) h.textContent = App.serverSeedHash.slice(0, 24) + '…';
+    if (n) n.textContent = App.nonce;
+    if (nx) nx.textContent = App.nonce;
+  };
+  const btn = $('#pfRotate-' + id, el);
+  if (btn) btn.addEventListener('click', async () => {
+    const revealed = await rotateSeeds();
+    const rv = $('#pfRevealed-' + id, el);
+    rv.classList.remove('hidden');
+    rv.innerHTML = `Revealed server seed: <code>${revealed}</code><br>Check: SHA-256 of it equals the old commitment above. A new seed &amp; commitment are now active.`;
+    upd();
+    toast('🔐 Seeds rotated — old server seed revealed', 'success');
+    if (window.sfx) sfx.click();
+  });
+  upd();
 }
 
 /* ---------- balance & bet guard ---------- */
@@ -96,14 +168,40 @@ function updateBalance() {
     net.textContent = (d >= 0 ? '+' : '') + fmt(d);
     net.className = d >= 0 ? 'win' : 'lose';
   }
+  if (window.Meta) Meta.refreshTopbar();
 }
+/* Messages live here so every game explains failures the same way. */
 function canBet(amount) {
-  if (!(amount > 0) || !isFinite(amount)) return false;
+  if (!(amount > 0) || !isFinite(amount)) {
+    toast('Enter a valid bet amount', 'warn');
+    return false;
+  }
   if (App.lossLimit > 0 && App.balance <= App.sessionStartBalance - App.lossLimit) {
     toast('Loss limit reached — take a break 😌', 'warn');
     return false;
   }
-  return App.balance >= amount;
+  if (App.balance < amount) {
+    toast(App.balance < 1
+      ? 'Out of DEMO — grab the 🎁 daily bonus or the 🚰 faucet'
+      : 'Bet is larger than your balance', 'warn');
+    return false;
+  }
+  return true;
+}
+
+/* ---------- central bet ledger ----------
+   Every settled bet flows through here: history page, XP/levels, achievements,
+   weekly race and the live feed all hang off this one call. */
+function logBet(e) {
+  e.t = Date.now();
+  try {
+    const h = JSON.parse(localStorage.getItem('cl_history') || '[]');
+    h.unshift({ game: e.game, bet: e.bet, mult: e.mult, profit: e.profit, t: e.t });
+    if (h.length > 200) h.length = 200;
+    localStorage.setItem('cl_history', JSON.stringify(h));
+  } catch (err) { /* storage full/blocked — ledger is non-critical */ }
+  if (window.Meta) Meta.onBet(e);
+  if (window.Social) Social.onPlayerBet(e);
 }
 
 /* ---------- toast ---------- */
@@ -161,8 +259,12 @@ function renderView(id) {
   updateBalance();
 }
 
+const LOBBY_ORDER = ['crash', 'mines', 'dice', 'plinko', 'blackjack', 'slots'];
 function lobbyHtml() {
-  const cards = Object.values(games).map(g => `
+  const cards = Object.values(games)
+    .filter(g => !g.page)
+    .sort((a, b) => LOBBY_ORDER.indexOf(a.id) - LOBBY_ORDER.indexOf(b.id))
+    .map(g => `
     <a class="lobby-card" href="#/${g.id}">
       <div class="lc-ico">${g.icon}</div>
       <h3>${g.title}</h3>
@@ -172,16 +274,47 @@ function lobbyHtml() {
   return `
   <section class="hero">
     <h1>⚡ ChainLuck <span>Demo Casino</span></h1>
-    <p>Four crypto-style games · provably-fair dice · real physics plinko · classic blackjack · slots</p>
+    <p>Six crypto-style games · provably-fair dice, crash &amp; mines · real physics plinko · blackjack · slots</p>
     <p class="hero-note">All balances are fictional play money — no deposits, no withdrawals, no real crypto. Ever.</p>
   </section>
   <section class="lobby-grid">${cards}</section>
+  <section class="lobby-extras">
+    <div class="game-card feed-card">
+      <h3>⚡ Live bets</h3>
+      <div id="feedList" class="feed-list"><p class="muted">Connecting…</p></div>
+    </div>
+    <div class="game-card race-card">
+      <h3>🏁 Weekly wager race</h3>
+      <div id="racePreview" class="race-preview"></div>
+      <button class="btn" id="raceOpen">View full leaderboard</button>
+    </div>
+  </section>
   <section class="info-grid">
-    <div class="info-card"><h4>🎲 Provably fair</h4><p>Dice rolls are generated from SHA-256 hashes. Every roll is verifiable against the server-seed hash.</p></div>
-    <div class="info-card"><h4>👛 DemoMask wallet</h4><p>MetaMask-style demo wallet. Connect your real MetaMask read-only (nothing is ever signed or sent), or use the simulated wallet.</p></div>
-    <div class="info-card"><h4>🧘 Responsible play</h4><p>Session timer, net tracker and honest RTP. This is entertainment — play for fun, not for money.</p></div>
+    <div class="info-card info-link" id="achOpen">
+      <h4>🏆 Achievements <span class="muted" id="achCount"></span></h4>
+      <p>Unlock badges for streaks, big multipliers and milestones. Earn DEMO rewards.</p>
+    </div>
+    <div class="info-card"><h4>🎲 Provably fair</h4><p>Dice, Crash and Mines derive every round from SHA-256(client:server:nonce). Rotate the seed to reveal &amp; verify it yourself.</p></div>
+    <div class="info-card"><h4>🧘 Responsible play</h4><p>Session timer, loss limit, net tracker and honest RTP. This is entertainment — play for fun, not for money.</p></div>
   </section>`;
 }
+
+/* ---------- keyboard ----------
+   Space = the game's main action, Escape closes any modal. */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    $$('.overlay').forEach(o => o.classList.add('hidden'));
+    return;
+  }
+  if (e.code !== 'Space' || e.repeat) return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'button' || tag === 'select' || e.target.isContentEditable) return;
+  if ($$('.overlay:not(.hidden)').length) return;
+  if (App.current && typeof App.current.mainAction === 'function') {
+    e.preventDefault();
+    App.current.mainAction();
+  }
+});
 
 /* ---------- boot ---------- */
 document.addEventListener('DOMContentLoaded', async () => {

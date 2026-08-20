@@ -1,5 +1,6 @@
 'use strict';
-/* Classic Blackjack — 6 decks, dealer stands on all 17s, blackjack pays 3:2, double on first two cards. */
+/* Classic Blackjack — 6 decks, dealer stands on all 17s, blackjack pays 3:2, double on first two cards.
+   Keyboard: H hit · S stand · D double · Space deal. */
 
 const blackjackGame = {
   id: 'blackjack',
@@ -9,6 +10,8 @@ const blackjackGame = {
   suits: ['♠', '♥', '♦', '♣'],
   phase: 'bet',
   busy: false,
+  active: false, // a bet is debited and not yet settled/refunded
+  dead: false,   // set on navigate-away: async settle must stop paying out
   bet: 0,
   holeVisible: false,
 
@@ -20,8 +23,11 @@ const blackjackGame = {
         <div class="bet-row">
           <label>Bet amount (DEMO)</label>
           <input type="number" id="bjBet" class="num-in" value="100" min="1" step="1">
+          <div class="quick-bets">
+            ${[10, 50, 100, 500, 1000].map(v => `<button class="qbtn" data-v="${v}">${v}</button>`).join('')}
+          </div>
         </div>
-        <div class="bj-table">
+        <div class="bj-table" aria-live="polite">
           <div class="bj-hand-row">
             <div class="bj-label">Dealer</div>
             <div class="bj-cards" id="bjDealerCards"></div>
@@ -36,9 +42,9 @@ const blackjackGame = {
         </div>
         <div class="bj-actions">
           <button class="btn btn-big" id="bjDeal">🂠 Deal</button>
-          <button class="btn" id="bjHit">Hit</button>
-          <button class="btn" id="bjStand">Stand</button>
-          <button class="btn" id="bjDouble">Double</button>
+          <button class="btn" id="bjHit">Hit (H)</button>
+          <button class="btn" id="bjStand">Stand (S)</button>
+          <button class="btn" id="bjDouble">Double (D)</button>
         </div>
         <div class="bj-last" id="bjLast"></div>
       </div>
@@ -72,16 +78,46 @@ const blackjackGame = {
     this.playerHand = [];
     this.dealerHand = [];
     this.holeVisible = false;
+    this.active = false;
+    this.dead = false;
 
-    this.dealBtn.addEventListener('click', () => this.deal());
+    this.dealBtn.addEventListener('click', () => this.mainAction());
     this.hitBtn.addEventListener('click', () => this.hit());
     this.standBtn.addEventListener('click', () => this.stand());
     this.doubleBtn.addEventListener('click', () => this.doubleDown());
+    $$('.qbtn', el).forEach(b => b.addEventListener('click', () => { this.betIn.value = b.dataset.v; }));
+
+    this.keyHandler = (e) => {
+      if ($$('.overlay:not(.hidden)').length) return;
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      const k = e.key.toLowerCase();
+      if (k === 'h') this.hit();
+      else if (k === 's') this.stand();
+      else if (k === 'd') this.doubleDown();
+    };
+    document.addEventListener('keydown', this.keyHandler);
+
     this.setPhase('bet');
     this.render();
   },
 
-  destroy() {},
+  destroy() {
+    document.removeEventListener('keydown', this.keyHandler);
+    // A hand in progress is abandoned: refund the debited bet and stop async payouts.
+    this.dead = true;
+    if (this.active && this.bet > 0) {
+      App.balance += this.bet;
+      saveState();
+      updateBalance();
+      toast('Hand ended — bet refunded');
+    }
+    this.active = false;
+  },
+
+  mainAction() {
+    if (this.phase === 'bet' || this.phase === 'done') this.deal();
+  },
 
   makeDeck() {
     const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -117,7 +153,8 @@ const blackjackGame = {
     this.dealBtn.disabled = p !== 'bet' && p !== 'done';
     this.hitBtn.disabled = p !== 'play';
     this.standBtn.disabled = p !== 'play';
-    this.doubleBtn.disabled = !(p === 'play' && this.playerHand && this.playerHand.length === 2 && this.bet * 2 <= App.balance);
+    // doubling debits ONE more bet on top of the original
+    this.doubleBtn.disabled = !(p === 'play' && this.playerHand && this.playerHand.length === 2 && this.bet <= App.balance);
   },
 
   cardEl(c, faceDown) {
@@ -131,6 +168,7 @@ const blackjackGame = {
   },
 
   render() {
+    if (this.dead) return;
     const hasHands = this.playerHand && this.playerHand.length > 0;
     if (!hasHands) {
       this.dealerCards.innerHTML = '<span class="muted" style="font-size:12px">—</span>';
@@ -152,12 +190,15 @@ const blackjackGame = {
   async deal() {
     if (this.busy) return;
     const bet = parseFloat(this.betIn.value);
-    if (!canBet(bet)) { toast('Enter a valid bet you can afford', 'warn'); return; }
+    if (!canBet(bet)) return;
     this.busy = true;
+    this.dead = false;
     this.bet = bet;
+    this.active = true;
     App.balance -= bet;
     saveState();
     updateBalance();
+    if (window.sfx) sfx.bet();
     this.playerHand = [this.draw(), this.draw()];
     this.dealerHand = [this.draw(), this.draw()];
     this.holeVisible = false;
@@ -173,18 +214,24 @@ const blackjackGame = {
         this.status.textContent = 'Both have blackjack — push.';
         this.holeVisible = true;
         await sleep(700);
+        if (this.dead) return;
         await this.settle();
       } else {
         this.status.textContent = 'Blackjack! 3:2 payout.';
         await sleep(700);
+        if (this.dead) return;
+        const profit = this.bet * 1.5;
         App.balance += this.bet * 2.5;
+        this.active = false;
         saveState();
         updateBalance();
-        this.last.innerHTML = `<span class="win">+${fmt(this.bet * 1.5)} DEMO</span>`;
+        logBet({ game: 'blackjack', bet: this.bet, mult: 2.5, profit });
+        this.last.innerHTML = `<span class="win">+${fmt(profit)} DEMO</span>`;
         this.holeVisible = true;
         this.setPhase('done');
         this.render();
         this.busy = false;
+        if (window.sfx) sfx.win();
       }
       return;
     }
@@ -192,6 +239,7 @@ const blackjackGame = {
       this.status.textContent = 'Dealer has blackjack — you lose.';
       this.holeVisible = true;
       await sleep(700);
+      if (this.dead) return;
       await this.settle();
       return;
     }
@@ -201,6 +249,7 @@ const blackjackGame = {
   hit() {
     if (this.busy || this.phase !== 'play') return;
     this.playerHand.push(this.draw());
+    if (window.sfx) sfx.click();
     this.render();
     if (this.value(this.playerHand) > 21) {
       this.status.textContent = 'Bust!';
@@ -223,6 +272,7 @@ const blackjackGame = {
     this.bet *= 2;
     saveState();
     updateBalance();
+    if (window.sfx) sfx.bet();
     this.busy = true;
     this.playerHand.push(this.draw());
     this.render();
@@ -234,10 +284,12 @@ const blackjackGame = {
     this.holeVisible = true;
     this.render();
     await sleep(600);
+    if (this.dead) return;
     while (this.value(this.dealerHand) < 17) {
       this.dealerHand.push(this.draw());
       this.render();
       await sleep(480);
+      if (this.dead) return;
     }
     const dv = this.value(this.dealerHand);
     const pv = this.value(this.playerHand);
@@ -249,12 +301,15 @@ const blackjackGame = {
     else { msg = 'Push — bet returned.'; profit = 0; }
     if (profit > 0) { App.balance += this.bet * 2; }
     else if (profit === 0) { App.balance += this.bet; }
+    this.active = false;
     saveState();
     updateBalance();
+    logBet({ game: 'blackjack', bet: this.bet, mult: profit > 0 ? 2 : profit === 0 ? 1 : 0, profit });
     this.status.textContent = msg;
     this.last.innerHTML = `<span class="${profit >= 0 ? 'win' : 'lose'}">${profit >= 0 ? '+' : '−'}${fmt(Math.abs(profit))} DEMO</span>`;
     this.setPhase('done');
     this.busy = false;
+    if (window.sfx) { profit > 0 ? sfx.win() : profit < 0 ? sfx.lose() : sfx.click(); }
   },
 };
 registerGame(blackjackGame);

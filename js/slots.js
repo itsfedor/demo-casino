@@ -16,6 +16,13 @@ const slotsGame = {
     { s: '🍀', w: 2, p: 360 },
     { s: '7️⃣', w: 1, p: 900 },
   ],
+  LINES: [
+    [[0, 0], [1, 0], [2, 0]],
+    [[0, 1], [1, 1], [2, 1]],
+    [[0, 2], [1, 2], [2, 2]],
+    [[0, 0], [1, 1], [2, 2]],
+    [[0, 2], [1, 1], [2, 0]],
+  ],
   spinning: false,
 
   html() {
@@ -36,7 +43,8 @@ const slotsGame = {
           </div>
         </div>
         <button class="btn btn-big" id="slSpin">🎰 Spin</button>
-        <div class="sl-result" id="slResult"></div>
+        ${AutoBet.panelHtml()}
+        <div class="sl-result" id="slResult" aria-live="polite"></div>
       </div>
       <div class="game-card">
         <h3>Payouts</h3>
@@ -56,7 +64,8 @@ const slotsGame = {
     $$('.qbtn', el).forEach(b => b.addEventListener('click', () => {
       this.betIn.value = b.dataset.v;
     }));
-    this.spinBtn.addEventListener('click', () => this.spin());
+    this.spinBtn.addEventListener('click', () => this.mainAction());
+    AutoBet.wire(el, this);
 
     const table = $('#slPayTable', el);
     table.innerHTML = this.SYM.map(s => `
@@ -66,7 +75,11 @@ const slotsGame = {
       </div>`).join('');
   },
 
-  destroy() {},
+  destroy() {
+    AutoBet.stop(this);
+  },
+
+  mainAction() { this.spin(); },
 
   pick() {
     const total = this.SYM.reduce((a, s) => a + s.w, 0);
@@ -81,13 +94,14 @@ const slotsGame = {
   spin() {
     if (this.spinning) return;
     const bet = parseFloat(this.betIn.value);
-    if (!canBet(bet)) { toast('Enter a valid bet you can afford', 'warn'); return; }
+    if (!canBet(bet)) { AutoBet.stop(this, 'Auto stopped'); return; }
     this.spinning = true;
     this.spinBtn.disabled = true;
     this.resultEl.textContent = '';
     App.balance -= bet;
     saveState();
     updateBalance();
+    if (window.sfx) sfx.bet();
 
     // precompute final grid: 3 reels × 3 rows
     const grid = [[], [], []];
@@ -95,6 +109,7 @@ const slotsGame = {
 
     const cells = [];
     for (let c = 0; c < 3; c++) cells.push($$('#reel' + c + ' .cell', this.el));
+    cells.forEach(col => col.forEach(cell => cell.classList.remove('win-cell')));
 
     const spinReel = (c, duration) => new Promise(res => {
       const t0 = performance.now();
@@ -120,41 +135,39 @@ const slotsGame = {
       const p3 = spinReel(2, 1400).then(() => setCol(2, grid[2]));
       await Promise.all([p1, p2, p3]);
       await sleep(300);
-      this.evalWin(grid, bet);
+      this.evalWin(grid, bet, cells);
       this.spinning = false;
       this.spinBtn.disabled = false;
     })();
   },
 
-  evalWin(grid, bet) {
-    const lines = [
-      [[0, 0], [1, 0], [2, 0]],
-      [[0, 1], [1, 1], [2, 1]],
-      [[0, 2], [1, 2], [2, 2]],
-      [[0, 0], [1, 1], [2, 2]],
-      [[0, 2], [1, 1], [2, 0]],
-    ];
+  evalWin(grid, bet, cells) {
     let win = 0;
     const wonLines = [];
-    lines.forEach((line, li) => {
+    this.LINES.forEach((line, li) => {
       const a = grid[line[0][0]][line[0][1]];
       const b = grid[line[1][0]][line[1][1]];
       const c = grid[line[2][0]][line[2][1]];
       if (a.s === b.s && b.s === c.s) {
         win += bet / 5 * a.p;
         wonLines.push(li + 1);
+        for (const [cc, rr] of line) cells[cc][rr].classList.add('win-cell');
       }
     });
+    const mult = win > 0 ? win / bet : 0;
+    const profit = win - bet;
     if (win > 0) {
       App.balance += win;
       saveState();
       updateBalance();
-      const profit = win - bet;
       this.resultEl.innerHTML = `<span class="win">WIN +${fmt(profit)} DEMO</span> <span class="muted">· lines ${wonLines.join(', ')}</span>`;
       toast('🎉 Win on line(s) ' + wonLines.join(', ') + '!');
     } else {
       this.resultEl.innerHTML = `<span class="lose">LOSE −${fmt(bet)} DEMO</span>`;
     }
+    logBet({ game: 'slots', bet, mult, profit });
+    AutoBet.onResult(this, profit);
+    if (window.sfx) { win > 0 ? (mult >= 10 ? sfx.bigwin() : sfx.win()) : sfx.lose(); }
   },
 };
 registerGame(slotsGame);
