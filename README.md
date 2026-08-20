@@ -1,12 +1,19 @@
-# ⚡ ChainLuck — Demo Casino
+# ⚡ ChainLuck: Demo Casino (Play Money Only)
 
-A 100% client-side demo crypto-casino: six games, provably-fair hashing, a full
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Live demo](https://img.shields.io/badge/demo-live-39d353?logo=githubpages&logoColor=fff)](https://itsfedor.github.io/demo-casino)
+
+A 100% client-side demo crypto casino: six games, provably-fair hashing, a full
 progression loop (XP, levels, daily streak bonus, achievements, weekly wager
-race, live bet feed, auto-bet) — all in vanilla JS with **no build step, no
+race, live bet feed, auto-bet) in vanilla JS with **no build step, no
 dependencies, no backend**. Every balance is fictional play money.
 
 **This is a demo.** No real funds, no blockchain transactions, nothing is ever
 signed or sent. MetaMask connect is read-only (address display only). 18+.
+
+<p align="center">
+  <img src="assets/preview.jpg" alt="ChainLuck: Demo Casino" width="80%" />
+</p>
 
 ## Run
 
@@ -17,11 +24,11 @@ python3 -m http.server 8080
 ```
 
 Open http://localhost:8080. Note: on `file://` or plain HTTP the SHA-256
-fallback is a deterministic non-cryptographic hash (browser limit — real
+fallback is a deterministic non-cryptographic hash (a browser limit, since real
 `crypto.subtle` requires a secure context); the games still work.
 
-Deploy: push to `main` — GitHub Actions deploys to GitHub Pages and
-cache-busts asset URLs with the run number automatically.
+Deploy: push to `main`. GitHub Actions deploys to GitHub Pages and cache-busts
+asset URLs with the run number automatically.
 
 ## Verify the math
 
@@ -42,42 +49,43 @@ Loads the actual game files in a VM sandbox and proves every paytable:
 
 ## Games
 
-- **🚀 Crash** — multiplier curve, manual or auto cash-out, crash history strip
-- **💣 Mines** — 5×5 grid, 1/3/5/10/24 mines, cash out any time
-- **🎲 Dice** — 1–95% win chance, pays 99/chance
-- **🔺 Plinko** — up to 8 balls in flight, 3 risk tables, canvas physics
-- **🃏 Blackjack** — hit/stand/double, keyboard H/S/D
-- **🎰 Slots** — 3×3, 5 paylines, winning-line highlights
+- **🚀 Crash**: multiplier curve, manual or auto cash-out, crash history strip
+- **💣 Mines**: 5×5 grid, 1/3/5/10/24 mines, cash out any time
+- **🎲 Dice**: 1–95% win chance, pays 99/chance
+- **🔺 Plinko**: up to 8 balls in flight, 3 risk tables, canvas physics
+- **🃏 Blackjack**: hit/stand/double, keyboard H/S/D
+- **🎰 Slots**: 3×3, 5 paylines, winning-line highlights
 
 ## Provably fair (Dice, Crash, Mines, Plinko path)
 
 Every round consumes one hash: `sha256(clientSeed:serverSeed:nonce)`.
+
 - Dice: rejection-sampled uniform roll from the first 52 bits
 - Crash: crash = `floor(0.99/u · 100)/100` where u = h/2^52
 - Mines: hash seeds a Fisher-Yates shuffle of the 25 tiles
-- Plinko: 12 hash bits = one L/R decision per peg row → binomial slots
+- Plinko: 12 hash bits = one L/R decision per peg row, so balls land on a binomial distribution
 
 The seed pair lives in your browser (`cl_seeds`). Press **Rotate & reveal
-server seed** in any game to reveal the old seed and verify past rounds
-against the previous commitment. (Demo honesty note: since the "server" seed
-is stored client-side, this is verifiable-by-you, not tamper-proof.)
+server seed** in any game to reveal the old seed and verify past rounds against
+the previous commitment. Since the "server" seed is stored client-side, this is
+verifiable by you, not tamper-proof.
 
 ## Retention & progression loop
 
-XP = every DEMO wagered → quadratic levels → level-up DEMO rewards → topbar
-progress bar. Daily 🎁 bonus with a streak multiplier (20h cooldown, 48h
-streak window). 🚰 Faucet appears when you go broke (15 min cooldown).
-16 achievements with DEMO rewards. Weekly wager race vs simulated players
-(resets Monday, your real bets count). Live bet feed mixing bot bets with
-yours. Auto-bet for Dice/Plinko/Slots (bet count, on-win/on-loss scaling,
-profit/loss stops). Global bet history page. Synthesized WebAudio SFX with
-mute. Confetti at 10×+, mega at 50×+.
+XP = every DEMO wagered, then quadratic levels, level-up DEMO rewards, and a
+topbar progress bar. Daily 🎁 bonus with a streak multiplier (20h cooldown, 48h
+streak window). 🚰 Faucet appears when you go broke (15 min cooldown). 16
+achievements with DEMO rewards. Weekly wager race vs simulated players (resets
+Monday, your real bets count). Live bet feed mixing bot bets with yours.
+Auto-bet for Dice/Plinko/Slots (bet count, on-win/on-loss scaling, profit/loss
+stops). Global bet history page. Synthesized WebAudio SFX with mute. Confetti at
+10×+, mega at 50×+.
 
 ## Responsible play (kept, and made real)
 
-Session timer with 30-minute break nags, session net tracker, **configurable
-session loss limit** (Settings ⚙️ — actually enforced by `canBet()`), honest
-RTP published and machine-verified, zero-balance faucet instead of dead ends.
+Session timer with 30-minute break nags, session net tracker, a **configurable
+session loss limit** (Settings ⚙️, actually enforced by `canBet()`), honest RTP
+published and machine-verified, and a zero-balance faucet instead of dead ends.
 
 ## Layout
 
@@ -96,3 +104,7 @@ scripts/rtp-check.mjs   math verification (CI-runnable, exits non-zero on failur
 ```
 
 State lives in `localStorage` (`cl_*` keys); Settings → Reset wipes everything.
+
+## License
+
+[MIT](LICENSE)
