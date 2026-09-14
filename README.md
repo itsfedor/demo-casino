@@ -17,6 +17,8 @@ signed or sent. MetaMask connect is read-only (address display only). 18+.
 
 ## Run
 
+**Prerequisites:** Python 3 **or** Node.js — any static file server will do. Nothing to install, no build step, no dependencies.
+
 ```bash
 # any static server works
 python3 -m http.server 8080
@@ -29,6 +31,12 @@ fallback is a deterministic non-cryptographic hash (a browser limit, since real
 
 Deploy: push to `main`. GitHub Actions deploys to GitHub Pages and cache-busts
 asset URLs with the run number automatically.
+
+## FAQ
+
+- **Is this real money?** No. Every balance is fictional play money; nothing is signed, sent, or stored on-chain. The MetaMask connection is a read-only address display.
+- **Why does the fairness hash differ on `file://`?** Real `crypto.subtle` requires a secure context (HTTPS or localhost). Opened from `file://`, the app falls back to a deterministic non-cryptographic hash — the games still work, but run it from a static server for the real proof.
+- **Does it need a build step?** No — vanilla JS, zero dependencies. Any static server, or just the [live demo](https://itsfedor.github.io/demo-casino).
 
 ## Verify the math
 
